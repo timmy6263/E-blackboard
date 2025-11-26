@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>互動式數位黑板 (具備存檔功能)</title>
+    <style>
+        :root {
+            --board-bg: #2b3a28;
+            --wood-color: #8b5a2b;
+            --chalk-white: #f0f0f0;
+            --chalk-yellow: #f4e785;
+            --chalk-red: #ff9999;
+            --chalk-blue: #99ccff;
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            overflow: hidden;
+            font-family: 'Segoe Print', 'Chalkboard SE', 'Comic Sans MS', sans-serif;
+        }
+
+        /* --- 1. 黑板區域 --- */
+        #blackboard {
+            position: relative;
+            width: calc(100% - 40px);
+            height: calc(100% - 100px);
+            margin: 20px;
+            background-color: var(--board-bg);
+            background-image: 
+                radial-gradient(circle at 50% 50%, rgba(255,255,255,0.05), transparent 80%),
+                url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0IiBoZWlnaHQ9IjQiPgo8cmVjdCB3aWR0aD0iNCIgaGVpZ2h0PSI0IiBmaWxsPSIjMmIzYTI4Ii8+CjxyZWN0IHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9InJnYmEoMjU1LDI1NSwyNTUsMC4wNSkiLz4KPC9zdmc+');
+            border: 15px solid var(--wood-color);
+            border-radius: 8px;
+            box-shadow: 
+                inset 0 0 50px rgba(0,0,0,0.5),
+                0 10px 20px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+
+        /* --- 裝飾物件 --- */
+        .chalk-tray {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 20px;
+            background: #5c3a1e;
+            box-shadow: 0 -2px 5px rgba(0,0,0,0.3);
+            display: flex;
+            align-items: flex-end;
+            padding-left: 50px;
+            z-index: 1;
+        }
+
+        .eraser {
+            width: 80px;
+            height: 25px;
+            background: linear-gradient(#444, #222);
+            border-top: 5px solid #d4a76a;
+            margin-right: 30px;
+            margin-bottom: 5px;
+            border-radius: 3px;
+            box-shadow: 2px 2px 5px rgba(0,0,0,0.5);
+            transform: rotate(-5deg);
+        }
+
+        .chalk {
+            width: 50px;
+            height: 10px;
+            border-radius: 2px;
+            margin-right: 10px;
+            margin-bottom: 5px;
+            box-shadow: 1px 1px 3px rgba(0,0,0,0.3);
+        }
+        .chalk.white { background: var(--chalk-white); transform: rotate(15deg); }
+        .chalk.red { background: var(--chalk-red); transform: rotate(5deg); }
+        .chalk.blue { background: var(--chalk-blue); transform: rotate(-10deg); }
+
+        /* --- 2. 工具列 --- */
+        #toolbar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 60px;
+            background: #333;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.3);
+            z-index: 100;
+            flex-wrap: wrap; /* 防止小螢幕爆開 */
+        }
+
+        .tool-btn {
+            padding: 6px 12px;
+            font-size: 14px;
+            background: #555;
+            color: white;
+            border: 2px solid #777;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: inherit;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .tool-btn:hover { background: #777; transform: translateY(-2px); }
+        .tool-btn:active { transform: translateY(0); }
+        
+        /* 區隔線 */
+        .separator { width: 1px; height: 30px; background: #666; margin: 0 5px; }
+
+        /* --- 通用 Widget --- */
+        .widget {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px dashed rgba(255, 255, 255, 0.3);
+            color: var(--chalk-white);
+            min-width: 200px;
+            min-height: 150px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            resize: both;
+            box-shadow: 3px 3px 10px rgba(0,0,0,0.2);
+            backdrop-filter: blur(2px);
+        }
+
+        .widget-header {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 5px 10px;
+            cursor: move;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            user-select: none;
+            font-size: 14px;
+            border-bottom: 1px solid rgba(255,255,255,0.2);
+        }
+
+        .close-btn { cursor: pointer; color: #ff9999; font-weight: bold; }
+        .widget-content {
+            flex: 1;
+            padding: 10px;
+            overflow: auto;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+
+        /* --- 個別功能樣式 --- */
+        textarea.chalk-input {
+            width: 100%; height: 100%; background: transparent; border: none;
+            color: var(--chalk-white); font-family: inherit; font-size: 1.2rem;
+            resize: none; outline: none;
+        }
+
+        .timer-display { font-size: 3rem; text-align: center; margin: auto; font-weight: bold; text-shadow: 2px 2px 4px black;}
+        .timer-controls { display: flex; gap: 5px; justify-content: center; margin-top: 10px; }
+        .timer-controls input { width: 50px; background: transparent; border: 1px solid white; color: white; text-align: center; }
+        
+        .chalk-btn { background: transparent; border: 1px solid white; color: white; cursor: pointer; font-family: inherit; padding: 2px 8px; border-radius: 4px; }
+        .chalk-btn:hover { background: rgba(255,255,255,0.2); }
+        
+        .timetable-setup { display: flex; flex-direction: column; gap: 5px; }
+        /* *** 此處是修改點：確保輸入文字為粉筆白 *** */
+        .timetable-setup input { 
+            background: transparent; 
+            border: 1px solid #aaa; 
+            color: var(--chalk-white); /* 確保輸入文字使用粉筆白 */
+            padding: 3px; 
+        }
+        table.chalk-table { width: 100%; border-collapse: collapse; margin-top: 5px; }
+        table.chalk-table th, table.chalk-table td { border: 1px solid white; padding: 5px; text-align: center; font-size: 0.9rem; color: var(--chalk-yellow); }
+        table.chalk-table td[contenteditable="true"]:focus { background-color: rgba(244, 231, 133, 0.1); outline: none; }
+
+        /* 時鐘 */
+        .clock-container { display: flex; justify-content: center; align-items: center; width: 100%; height: 100%; }
+        .clock-face { width: 180px; height: 180px; border: 4px solid var(--chalk-white); border-radius: 50%; position: relative; box-shadow: inset 0 0 10px rgba(0,0,0,0.5); }
+        .clock-marker { position: absolute; width: 100%; height: 100%; text-align: center; font-weight: bold; font-size: 1.2rem; color: var(--chalk-white); padding-top: 5px; box-sizing: border-box; }
+        .marker-12 { transform: rotate(0deg); }
+        .marker-3 { transform: rotate(90deg); } .marker-3 span { display: inline-block; transform: rotate(-90deg); }
+        .marker-6 { transform: rotate(180deg); } .marker-6 span { display: inline-block; transform: rotate(-180deg); }
+        .marker-9 { transform: rotate(270deg); } .marker-9 span { display: inline-block; transform: rotate(-270deg); }
+        .clock-center-dot { position: absolute; top: 50%; left: 50%; width: 10px; height: 10px; background: var(--chalk-white); border-radius: 50%; transform: translate(-50%, -50%); z-index: 10; }
+        .hand { position: absolute; bottom: 50%; left: 50%; transform-origin: bottom center; border-radius: 5px 5px 0 0; box-shadow: 1px 1px 2px rgba(0,0,0,0.3); }
+        .hour-hand { width: 6px; height: 50px; background: var(--chalk-white); z-index: 5; }
+        .min-hand { width: 4px; height: 70px; background: var(--chalk-white); z-index: 6; }
+        .sec-hand { width: 2px; height: 80px; background: var(--chalk-red); z-index: 7; }
+        .digital-time { position: absolute; bottom: 10%; width: 100%; text-align: center; font-size: 0.9rem; color: var(--chalk-yellow); }
+
+        /* 抽籤工具 */
+        .lottery-setup { display: flex; flex-direction: column; gap: 10px; justify-content: center; height: 100%; }
+        .lottery-setup label { display: flex; justify-content: space-between; align-items: center; }
+        .lottery-setup input { width: 60px; background: transparent; border: 1px solid white; color: white; text-align: center; padding: 3px; font-family: inherit; }
+        .lottery-result { display: none; flex-direction: column; justify-content: space-between; height: 100%; }
+        .lottery-numbers { 
+            flex: 1; display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 15px; 
+            font-size: 2.5rem; color: var(--chalk-red); font-weight: bold; text-shadow: 2px 2px 0px rgba(0,0,0,0.5); padding: 10px;
+        }
+        .lottery-actions { display: flex; justify-content: center; gap: 10px; margin-top: 10px; }
+
+    </style>
+</head>
+<body>
+
+    <div id="blackboard">
+        <div class="chalk-tray">
+            <div class="eraser" title="板擦"></div>
+            <div class="chalk white" title="白粉筆"></div>
+            <div class="chalk red" title="紅粉筆"></div>
+            <div class="chalk blue" title="藍粉筆"></div>
+        </div>
+    </div>
+
+    <div id="toolbar">
+        <button class="tool-btn" onclick="addTimerWidget()">⏱️ 倒數計時</button>
+        <button class="tool-btn" onclick="addNoteWidget()">📝 文字編輯</button>
+        <button class="tool-btn" onclick="addTimetableWidget()">📅 功課表</button>
+        <button class="tool-btn" onclick="addAnalogClockWidget()">🕒 指針時鐘</button>
+        <button class="tool-btn" onclick="addLotteryWidget()">🎟️ 亂數抽籤</button>
+        
+        <div class="separator"></div>
+        
+        <button class="tool-btn" style="border-color: #99ccff; color: #99ccff;" onclick="saveBoard()">💾 儲存設定</button>
+        <button class="tool-btn" style="border-color: #f4e785; color: #f4e785;" onclick="document.getElementById('fileInput').click()">📂 讀取設定</button>
+        <button class="tool-btn" style="border-color: #ff9999; color: #ff9999;" onclick="clearBoard()">🗑️ 清除全部</button>
+        
+        <input type="file" id="fileInput" style="display: none;" accept=".json" onchange="loadBoard(this)">
+    </div>
+
+    <script>
+        const blackboard = document.getElementById('blackboard');
+        let zIndexCounter = 10;
+
+        // --- Widget 核心 (增加 type 和 savedState 參數) ---
+        function createWidget(type, title, width = '250px', height = '200px', savedState = null) {
+            const widget = document.createElement('div');
+            widget.className = 'widget';
+            widget.dataset.type = type; // 標記類型以便存檔
+
+            // 如果有存檔資料，使用存檔的樣式
+            if (savedState) {
+                widget.style.width = savedState.width;
+                widget.style.height = savedState.height;
+                widget.style.left = savedState.left;
+                widget.style.top = savedState.top;
+                widget.style.zIndex = savedState.zIndex;
+                if(savedState.zIndex > zIndexCounter) zIndexCounter = parseInt(savedState.zIndex) + 1;
+            } else {
+                widget.style.width = width;
+                widget.style.height = height;
+                widget.style.left = '50px';
+                widget.style.top = '50px';
+                widget.style.zIndex = zIndexCounter++;
+            }
+
+            const header = document.createElement('div');
+            header.className = 'widget-header';
+            header.innerHTML = `<span>${title}</span><span class="close-btn" onclick="this.parentElement.parentElement.remove()">✖</span>`;
+            
+            const content = document.createElement('div');
+            content.className = 'widget-content';
+
+            widget.appendChild(header);
+            widget.appendChild(content);
+            blackboard.appendChild(widget);
+
+            widget.addEventListener('mousedown', () => {
+                widget.style.zIndex = zIndexCounter++;
+            });
+
+            dragElement(widget, header);
+            return content; 
+        }
+
+        // --- 拖曳功能 ---
+        function dragElement(elmnt, dragHandler) {
+            let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
+            dragHandler.onmousedown = dragMouseDown;
+            function dragMouseDown(e) {
+                e = e || window.event; e.preventDefault();
+                pos3 = e.clientX; pos4 = e.clientY;
+                document.onmouseup = closeDragElement; document.onmousemove = elementDrag;
+            }
+            function elementDrag(e) {
+                e = e || window.event; e.preventDefault();
+                pos1 = pos3 - e.clientX; pos2 = pos4 - e.clientY;
+                pos3 = e.clientX; pos4 = e.clientY;
+                let newTop = (elmnt.offsetTop - pos2); let newLeft = (elmnt.offsetLeft - pos1);
+                if(newTop < 0) newTop = 0; if(newLeft < 0) newLeft = 0;
+                elmnt.style.top = newTop + "px"; elmnt.style.left = newLeft + "px";
+            }
+            function closeDragElement() { document.onmouseup = null; document.onmousemove = null; }
+        }
+
+        // --- 1. 倒數計時 ---
+        function addTimerWidget(savedData = null) {
+            const content = createWidget('timer', '倒數計時', '300px', '220px', savedData);
+            content.innerHTML = `
+                <div class="timer-controls" id="setup">
+                    <input type="number" id="min" value="5" min="0"> : <input type="number" id="sec" value="00" min="0" max="59">
+                    <button class="chalk-btn" id="startBtn">開始</button>
+                </div>
+                <div class="timer-display" style="display:none;">00:00</div>
+                <div class="timer-controls" style="display:none;" id="actions">
+                    <button class="chalk-btn" id="stopBtn">停止</button>
+                    <button class="chalk-btn" id="resetBtn">重設</button>
+                </div>
+            `;
+            
+            const setupDiv = content.querySelector('#setup');
+            const actionDiv = content.querySelector('#actions');
+            const displayDiv = content.querySelector('.timer-display');
+            const startBtn = content.querySelector('#startBtn');
+            const stopBtn = content.querySelector('#stopBtn');
+            const resetBtn = content.querySelector('#resetBtn');
+            const minInput = content.querySelector('#min');
+            const secInput = content.querySelector('#sec');
+            let intervalId = null;
+            let totalSeconds = 0;
+
+            // 恢復設定值
+            if(savedData && savedData.data) {
+                minInput.value = savedData.data.min;
+                secInput.value = savedData.data.sec;
+            }
+
+            function updateDisplay() {
+                let m = Math.floor(totalSeconds / 60);
+                let s = totalSeconds % 60;
+                displayDiv.textContent = `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+            }
+
+            startBtn.onclick = () => {
+                let m = parseInt(minInput.value) || 0;
+                let s = parseInt(secInput.value) || 0;
+                totalSeconds = m * 60 + s;
+                if(totalSeconds <= 0) return;
+                setupDiv.style.display = 'none'; displayDiv.style.display = 'block'; actionDiv.style.display = 'flex';
+                updateDisplay();
+                intervalId = setInterval(() => {
+                    if (totalSeconds > 0) { totalSeconds--; updateDisplay(); } 
+                    else { clearInterval(intervalId); displayDiv.textContent = "時間到!"; displayDiv.style.color = "#ff9999"; }
+                }, 1000);
+            };
+            stopBtn.onclick = () => clearInterval(intervalId);
+            resetBtn.onclick = () => { clearInterval(intervalId); displayDiv.style.color = "var(--chalk-white)"; displayDiv.style.display = 'none'; actionDiv.style.display = 'none'; setupDiv.style.display = 'flex'; };
+        }
+
+        // --- 2. 筆記本 ---
+        function addNoteWidget(savedData = null) {
+            const content = createWidget('note', '筆記本', '300px', '250px', savedData);
+            const textarea = document.createElement('textarea');
+            textarea.className = 'chalk-input';
+            textarea.placeholder = "在此輸入文字...";
+            if(savedData && savedData.data) {
+                textarea.value = savedData.data.text;
+            }
+            content.appendChild(textarea);
+        }
+
+        // --- 3. 功課表 ---
+        function addTimetableWidget(savedData = null) {
+            const content = createWidget('timetable', '功課表設定', '350px', '300px', savedData);
+            
+            // 如果是恢復已建立的表格
+            if(savedData && savedData.data && savedData.data.isGenerated) {
+                // 恢復標題
+                content.parentElement.querySelector('.widget-header span').textContent = savedData.data.title;
+                // 恢復表格內容 HTML
+                content.innerHTML = savedData.data.html;
+            } else {
+                // 預設初始化介面
+                content.innerHTML = `
+                    <div class="timetable-setup">
+                        <label>標題:</label>
+                        <input type="text" id="tt-title" value="今日課表">
+                        <label>起始時間:</label>
+                        <input type="time" id="tt-start" value="08:00">
+                        <button class="chalk-btn" id="createTT" style="margin-top:10px;">建立表格</button>
+                    </div>
+                    <div id="tt-result" style="display:none; width:100%; height:100%;"></div>
+                `;
+                
+                // 綁定建立按鈕事件
+                bindCreateTTEvent(content);
+            }
+        }
+
+        function bindCreateTTEvent(content) {
+            const createBtn = content.querySelector('#createTT');
+            if(!createBtn) return;
+            
+            createBtn.onclick = () => {
+                const titleText = content.querySelector('#tt-title').value;
+                const startTime = content.querySelector('#tt-start').value;
+                const setupDiv = content.querySelector('.timetable-setup');
+                const resultDiv = content.querySelector('#tt-result');
+                content.parentElement.querySelector('.widget-header span').textContent = titleText;
+                
+                // 標記為已產生，方便存檔判斷
+                resultDiv.dataset.generated = "true";
+
+                setupDiv.style.display = 'none';
+                resultDiv.style.display = 'block';
+                let [startH, startM] = startTime.split(':').map(Number);
+                let html = `<table class="chalk-table"><thead><tr><th>時間</th><th>科目</th><th>備註</th></tr></thead><tbody>`;
+                for(let i=1; i<=9; i++) {
+                    let endH = startH + 1;
+                    html += `<tr><td>${String(startH).padStart(2,'0')}:${String(startM).padStart(2,'0')}</td><td contenteditable="true"></td><td contenteditable="true"></td></tr>`;
+                    startH = endH;
+                }
+                html += `</tbody></table><div style="font-size:0.8rem; margin-top:5px; color:#aaa;">*點擊表格可編輯</div>`;
+                resultDiv.innerHTML = html;
+            };
+        }
+
+        // --- 4. 指針時鐘 ---
+        function addAnalogClockWidget(savedData = null) {
+            const content = createWidget('clock', '目前時間', '280px', '280px', savedData);
+            content.innerHTML = `
+                <div class="clock-container">
+                    <div class="clock-face">
+                        <div class="clock-marker marker-12">12</div>
+                        <div class="clock-marker marker-3"><span>3</span></div>
+                        <div class="clock-marker marker-6"><span>6</span></div>
+                        <div class="clock-marker marker-9"><span>9</span></div>
+                        <div class="clock-center-dot"></div>
+                        <div class="hand hour-hand"></div>
+                        <div class="hand min-hand"></div>
+                        <div class="hand sec-hand"></div>
+                        <div class="digital-time">00:00:00</div>
+                    </div>
+                </div>
+            `;
+            const hourHand = content.querySelector('.hour-hand');
+            const minHand = content.querySelector('.min-hand');
+            const secHand = content.querySelector('.sec-hand');
+            const digitalDisplay = content.querySelector('.digital-time');
+
+            function updateClock() {
+                if(!document.body.contains(content)) return;
+                const now = new Date();
+                const seconds = now.getSeconds();
+                const minutes = now.getMinutes();
+                const hours = now.getHours();
+                const secondsDegrees = ((seconds / 60) * 360);
+                const minutesDegrees = ((minutes / 60) * 360) + ((seconds/60)*6);
+                const hoursDegrees = ((hours / 12) * 360) + ((minutes/60)*30);
+                secHand.style.transform = `rotate(${secondsDegrees}deg)`;
+                minHand.style.transform = `rotate(${minutesDegrees}deg)`;
+                hourHand.style.transform = `rotate(${hoursDegrees}deg)`;
+                digitalDisplay.textContent = now.toLocaleTimeString();
+                requestAnimationFrame(updateClock);
+            }
+            requestAnimationFrame(updateClock);
+        }
+
+        // --- 5. 亂數抽籤 ---
+        function addLotteryWidget(savedData = null) {
+            const content = createWidget('lottery', '幸運抽籤', '280px', '220px', savedData);
+            
+            content.innerHTML = `
+                <div class="lottery-setup" id="l-setup">
+                    <label><span>總人數:</span> <input type="number" id="totalNum" value="30" min="1"></label>
+                    <label><span>抽幾人:</span> <input type="number" id="drawCount" value="1" min="1"></label>
+                    <div style="text-align:center; margin-top:10px;">
+                        <button class="chalk-btn" id="startDraw">開始抽籤</button>
+                    </div>
+                </div>
+                <div class="lottery-result" id="l-result">
+                    <div class="lottery-numbers" id="numDisplay">?</div>
+                    <div class="lottery-actions">
+                        <button class="chalk-btn" id="reDraw">重抽</button>
+                        <button class="chalk-btn" id="resetDraw">設定</button>
+                    </div>
+                </div>
+            `;
+
+            const setupDiv = content.querySelector('#l-setup');
+            const resultDiv = content.querySelector('#l-result');
+            const numDisplay = content.querySelector('#numDisplay');
+            const startBtn = content.querySelector('#startDraw');
+            const reDrawBtn = content.querySelector('#reDraw');
+            const resetBtn = content.querySelector('#resetDraw');
+            const inputTotal = content.querySelector('#totalNum');
+            const inputCount = content.querySelector('#drawCount');
+
+            // 恢復資料
+            if(savedData && savedData.data) {
+                inputTotal.value = savedData.data.total;
+                inputCount.value = savedData.data.drawCount;
+            }
+
+            function performDraw() {
+                const total = parseInt(inputTotal.value);
+                const count = parseInt(inputCount.value);
+                if (!total || !count || count > total || count < 1) {
+                    alert("請檢查人數設定是否正確！"); return;
+                }
+                setupDiv.style.display = 'none'; resultDiv.style.display = 'flex';
+                let animationInterval; let counter = 0;
+                const pool = Array.from({length: total}, (_, i) => i + 1);
+
+                animationInterval = setInterval(() => {
+                    numDisplay.style.color = "var(--chalk-white)";
+                    let tempNums = [];
+                    for(let i=0; i<count; i++) tempNums.push(Math.floor(Math.random() * total) + 1);
+                    numDisplay.textContent = tempNums.join(", ");
+                    counter++;
+                    if(counter > 15) { clearInterval(animationInterval); finalizeDraw(pool, count); }
+                }, 60);
+            }
+
+            function finalizeDraw(pool, count) {
+                let winners = []; let tempPool = [...pool];
+                for(let i=0; i<count; i++) {
+                    const randomIndex = Math.floor(Math.random() * tempPool.length);
+                    winners.push(tempPool[randomIndex]); tempPool.splice(randomIndex, 1);
+                }
+                winners.sort((a, b) => a - b);
+                numDisplay.style.color = "var(--chalk-red)";
+                numDisplay.textContent = winners.join(", ");
+            }
+
+            startBtn.onclick = performDraw; reDrawBtn.onclick = performDraw;
+            resetBtn.onclick = () => { resultDiv.style.display = 'none'; setupDiv.style.display = 'flex'; numDisplay.textContent = "?"; };
+        }
+
+        function clearBoard(confirmAction = true) {
+            if(!confirmAction || confirm("確定要清除黑板上所有物件嗎？")) {
+                const widgets = document.querySelectorAll('.widget');
+                widgets.forEach(w => w.remove());
+            }
+        }
+
+        // --- 存檔功能 ---
+        function saveBoard() {
+            const widgets = document.querySelectorAll('.widget');
+            const dataToSave = [];
+
+            widgets.forEach(w => {
+                const type = w.dataset.type;
+                const rect = w.style;
+                
+                let specificData = {};
+
+                // 根據不同類型儲存內部資料
+                if(type === 'note') {
+                    specificData.text = w.querySelector('textarea').value;
+                } else if(type === 'timer') {
+                    specificData.min = w.querySelector('#min').value;
+                    specificData.sec = w.querySelector('#sec').value;
+                } else if(type === 'lottery') {
+                    specificData.total = w.querySelector('#totalNum').value;
+                    specificData.drawCount = w.querySelector('#drawCount').value;
+                } else if(type === 'timetable') {
+                    const resultDiv = w.querySelector('#tt-result');
+                    // 判斷表格是否已生成
+                    if(resultDiv.style.display !== 'none') {
+                        specificData.isGenerated = true;
+                        specificData.title = w.querySelector('.widget-header span').textContent;
+                        // 儲存表格的 HTML (包含使用者填寫的內容)
+                        specificData.html = resultDiv.innerHTML;
+                    } else {
+                        specificData.isGenerated = false;
+                    }
+                }
+
+                dataToSave.push({
+                    type: type,
+                    width: rect.width,
+                    height: rect.height,
+                    left: rect.left,
+                    top: rect.top,
+                    zIndex: rect.zIndex,
+                    data: specificData
+                });
+            });
+
+            // 轉成 JSON 並下載
+            const blob = new Blob([JSON.stringify(dataToSave)], {type: 'application/json'});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'blackboard_backup.json';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        }
+
+        // --- 讀取功能 ---
+        function loadBoard(input) {
+            const file = input.files[0];
+            if(!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const savedData = JSON.parse(e.target.result);
+                    
+                    if(confirm("讀取設定將會清除目前畫面，確定繼續？")) {
+                        clearBoard(false); // 清除但不需再次確認
+
+                        // 依序重建
+                        savedData.forEach(item => {
+                            switch(item.type) {
+                                case 'timer': addTimerWidget(item); break;
+                                case 'note': addNoteWidget(item); break;
+                                case 'timetable': addTimetableWidget(item); break;
+                                case 'clock': addAnalogClockWidget(item); break;
+                                case 'lottery': addLotteryWidget(item); break;
+                            }
+                        });
+                    }
+                } catch(err) {
+                    alert("讀取失敗，檔案格式可能錯誤。");
+                    console.error(err);
+                }
+            };
+            reader.readAsText(file);
+            input.value = ''; // 重置 input 讓重複讀取同檔名可觸發 change
+        }
+    </script>
+</body>
+</html>
